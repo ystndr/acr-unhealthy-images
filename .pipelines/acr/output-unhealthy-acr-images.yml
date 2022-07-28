@@ -1,0 +1,40 @@
+# Output unhealthy Azure Container Registry images pipeline
+#
+# This pipeline is triggered periodically (currently: weekly)
+# It has parameter of agent pools to enable access to ACR (CN-managed agents has proper networking setup to access ACR)
+
+schedules:
+- cron: "0 0 * * Mon"
+  branches:
+    include:
+      - master
+  displayName: Weekly Monday midnight run
+
+parameters:
+- name: runAsTest
+  displayName: Run as Test
+  type: boolean
+  default: false
+
+variables:
+  TemplatePath: 'templates/stages-output-unhealthy-acr-images.yml'
+
+stages:
+- ${{ if eq(parameters['runAsTest'], false) }}:
+  - template: ${{ variables.TemplatePath }}
+    parameters:
+      environmentPoolMap: 
+        JapaneastStage: ["agent-japan-qa", "qa", "japaneast"]
+        JapaneastProd: ["agent-japan-prod", "prod", "japaneast"]
+      serviceConnection: 'container-vulnerability-remediator'
+      uploadAgent: 'agent-japan-prod'
+      storageAccountName: 'sacontainersec'
+
+- ${{ if eq(parameters['runAsTest'], true) }}:
+  - template: ${{ variables.TemplatePath }}
+    parameters:
+      environmentPoolMap: 
+        JapaneastTest: ["agent-japan-test", "test", "japaneast"]
+      serviceConnection: 'container-vulnerability-remediator-test'
+      uploadAgent: 'agent-japan-test'
+      storageAccountName: 'sacontainersectest'

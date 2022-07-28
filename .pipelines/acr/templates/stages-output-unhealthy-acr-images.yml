@@ -1,0 +1,83 @@
+# Stages of Output unhealthy Azure Container Registry images pipeline
+#
+# This pipeline is a template for output-unhealthy-acr-images.yml
+# The purpose is to allow execution for test environment
+
+parameters:
+- name: environmentPoolMap
+  type: object
+- name: serviceConnection
+  type: string
+- name: uploadAgent
+  type: string
+- name: resourceGroupName
+  type: string
+  default: 'container-sec-rg'
+- name: storageAccountName
+  type: string
+- name: containerName
+  type: string
+  default: 'output-unhealthy-acr-images'
+
+
+stages:
+- stage: OutputUnhealthyImages
+  variables:
+    toolsDirectory: '$(Build.SourcesDirectory)/tools/unhealthy_acr_images_deletion_tools/output_unhealthy_acr_images'
+  jobs:
+  - ${{ each item in parameters.environmentPoolMap }}:
+    - job: ${{ item.key }}
+      pool: ${{ item.value[0] }}
+      steps:
+      - task: AzurePowerShell@5
+        inputs:
+          azureSubscription: ${{ parameters.serviceConnection }}
+          ScriptType: 'FilePath'
+          ScriptPath: '${{ variables.toolsDirectory }}/output-unhealthy-acr-images.ps1'
+          ScriptArguments: >-
+            -Environment ${{ item.value[1] }} 
+            -Region ${{ item.value[2] }}
+          azurePowerShellVersion: 'LatestVersion'
+          errorActionPreference: 'continue'
+        displayName: 'Output unhealthy images'
+
+      - task: PublishBuildArtifacts@1
+        inputs:
+          PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+          ArtifactName: 'output'
+          publishLocation: 'Container'
+        displayName: 'Publish artifact of JSON outputs'
+      displayName: 'Output unhealthy images - ${{ item.key }}'
+      
+      
+  - job: UploadJsonFiles
+    dependsOn: 
+      - ${{ each item in parameters.environmentPoolMap }}:
+        - ${{ item.key }}
+    pool: ${{ parameters.uploadAgent }}
+    variables:
+      FileFilter: '*$(Build.BuildNumber).json'
+    steps:
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'output'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+      displayName: 'Download artifact of JSON outputs'
+
+    - task: AzurePowerShell@5
+      inputs:
+        azureSubscription: ${{ parameters.serviceConnection }}
+        ScriptType: 'FilePath'
+        ScriptPath: '${{ variables.toolsDirectory }}/upload-outputs-to-storage.ps1'
+        ScriptArguments: >-
+          -ResourceGroupName ${{ parameters.resourceGroupName }}
+          -StorageAccountName ${{ parameters.storageAccountName }} 
+          -ContainerName ${{ parameters.containerName }}
+          -FilePath $(Build.ArtifactStagingDirectory)/output
+          -FileFilter ${{ variables.FileFilter }}
+          -PrefixBlob $(Build.BuildNumber)
+        azurePowerShellVersion: 'LatestVersion'
+      displayName: 'Upload JSON outputs'
+    displayName: 'Upload JSON outputs to storage account'
